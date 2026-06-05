@@ -1,0 +1,330 @@
+CLASS zcl_zodata_so_dpc_ext DEFINITION
+  PUBLIC
+  INHERITING FROM zcl_zodata_so_dpc
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    METHODS /iwbep/if_mgw_appl_srv_runtime~create_deep_entity
+        REDEFINITION .
+    METHODS /iwbep/if_mgw_appl_srv_runtime~get_expanded_entity
+        REDEFINITION .
+    METHODS /iwbep/if_mgw_appl_srv_runtime~get_expanded_entityset
+        REDEFINITION .
+    METHODS /iwbep/if_mgw_appl_srv_runtime~execute_action
+        REDEFINITION .
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS zcl_zodata_so_dpc_ext IMPLEMENTATION.
+
+
+  METHOD /iwbep/if_mgw_appl_srv_runtime~create_deep_entity.
+    DATA : ls_so_all TYPE ZCL_ZODATA_SO_mpc_ext=>ty_so.
+
+    DATA : ls_header_in TYPE bapisdhd1,
+           lt_items     TYPE STANDARD TABLE OF bapisditm,
+           lt_partners  TYPE STANDARD TABLE OF bapiparnr,
+           lt_return    TYPE STANDARD TABLE OF bapiret2,
+           ls_headerx   TYPE bapisdhd1x,
+           lt_items_x   TYPE STANDARD TABLE OF bapisditmx.
+    DATA: lv_debug_hold TYPE c VALUE 'X'.
+      io_data_provider->read_entry_data( IMPORTING es_data = ls_so_all ).
+
+      IF ls_so_all-vbeln IS INITIAL.
+
+        ls_header_in-doc_type = ls_so_all-auart.
+        ls_header_in-doc_date = ls_so_all-erdat.
+        ls_header_in-created_by = ls_so_all-ernam.
+        ls_header_in-currency = ls_so_all-waerk.
+        ls_header_in-sales_org = ls_so_all-vkorg.
+        ls_header_in-distr_chan = ls_so_all-vtweg.
+        ls_header_in-division = ls_so_all-spart.
+        ls_header_in-pmnttrms = '0001'.
+
+      
+        lt_partners = VALUE #(
+            ( partn_role = 'AG' partn_numb = ls_so_all-kunnr ) " Sold-to Party
+            ( partn_role = 'WE' partn_numb = ls_so_all-kunnr ) " Ship-to Party
+            ( partn_role = 'RE' partn_numb = ls_so_all-kunnr ) " Bill-to Party
+            ( partn_role = 'PR' partn_numb = ls_so_all-kunnr ) " Payer
+        ).
+
+        lt_items = VALUE #( FOR ls_item IN ls_so_all-toitem
+                            ( itm_number = ls_item-posnr
+                              material   = ls_item-matnr
+                              short_text = ls_item-arktx
+                              target_qty = ls_item-zmeng
+                              target_qu  = ls_item-meins
+                              plant      = ls_item-werks
+                              store_loc  = ls_item-lgort
+                              ship_point = ls_item-vstel
+                              route      = ls_item-route
+                            )
+                          ).
+
+
+
+
+
+
+        DATA : lv_vbeln TYPE vbak-vbeln.
+
+        CALL FUNCTION 'BAPI_SALESORDER_CREATEFROMDAT2'
+          EXPORTING
+            order_header_in  = ls_header_in
+          IMPORTING
+            salesdocument    = lv_vbeln
+          TABLES
+            return           = lt_return
+            order_items_in   = lt_items
+            order_partners   = lt_partners.
+
+        IF NOT line_exists( lt_return[ type = 'E' ] ).
+          CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
+
+        ELSE.
+*        ls_so_all- = VALUE #( lt_return[ type = 'E']-message OPTIONAL ).
+        ENDIF.
+
+
+        ls_so_all-vbeln = lv_vbeln.
+
+        me->copy_data_to_ref(
+           EXPORTING
+             is_data = ls_so_all
+           CHANGING
+             cr_data = er_deep_entity ).
+
+      ELSE.
+        "Update Scenario
+        "Call change BAPI - BAPI_SALESORDER_CHANGE
+
+        "Handle Business Exception
+        DATA(lo_msg) = me->/iwbep/if_mgw_conv_srv_runtime~get_message_container( ).
+        lo_msg->add_message( iv_msg_type   = /iwbep/cl_cos_logger=>error
+                             iv_msg_id     = 'ZG00_PO'
+                             iv_msg_number = '004' ).
+
+        RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+          EXPORTING
+            message_container = lo_msg.
+
+        RAISE EXCEPTION NEW /iwbep/cx_mgw_busi_exception( message_container = lo_msg ).
+
+      ENDIF.
+*    ENDWHILE.
+  ENDMETHOD.
+
+
+  METHOD /iwbep/if_mgw_appl_srv_runtime~execute_action.
+    CASE  iv_action_name .
+      WHEN 'so_count_status'.
+        TYPES:BEGIN OF ty_tab,
+                vbeln TYPE vbeln,
+                kunnr TYPE kunnr,
+                rfstk TYPE rfstk,
+              END OF ty_tab.
+        DATA: it_tab   TYPE TABLE OF ty_tab,
+              lv_kunnr TYPE kunnr,
+              ls_count TYPE ZCL_ZODATA_SO_mpc=>ts_socountstatus,
+              lt_count TYPE ZCL_ZODATA_SO_mpc=>tt_socountstatus.
+
+        DATA(lt_para)  =   io_tech_request_context->get_parameters( ).
+
+        lv_kunnr = lt_para[ 1 ]-value .
+        lv_kunnr = |{ lv_kunnr ALPHA = IN } |.
+
+        SELECT so~vbeln
+               so~kunnr
+               so~GBSTK
+          FROM vbak AS so
+          INTO TABLE it_tab
+          WHERE so~kunnr = lv_kunnr.
+        IF sy-subrc IS INITIAL.
+          ls_count-customer = lv_kunnr.
+          LOOP AT it_tab ASSIGNING FIELD-SYMBOL(<ls_tab>).
+            CASE <ls_tab>-rfstk.
+              WHEN 'C'.
+                ls_count-completelyprocessed = ls_count-completelyprocessed + 1.
+              WHEN 'A'.
+                ls_count-notprocessed  = ls_count-notprocessed + 1.
+              WHEN 'B'.
+                ls_count-partiallyprocessed  = ls_count-partiallyprocessed + 1.
+              WHEN ' '.
+                ls_count-notrelevant =  ls_count-notrelevant + 1.
+            ENDCASE.
+
+          ENDLOOP.
+          APPEND ls_count TO lt_count.
+
+          /iwbep/if_mgw_conv_srv_runtime~copy_data_to_ref(
+            EXPORTING
+              is_data = ls_count
+            CHANGING
+              cr_data = er_data
+          ).
+        ENDIF.
+    ENDCASE.
+  ENDMETHOD.
+
+
+  METHOD /iwbep/if_mgw_appl_srv_runtime~get_expanded_entity.
+    DATA : ls_so_all TYPE ZCL_ZODATA_SO_mpc_ext=>ty_so,
+           ls_keys   TYPE ZCL_ZODATA_SO_mpc=>ts_soheader.
+
+    CASE iv_entity_set_name.
+
+      WHEN 'SOHeaderSet'.
+
+        io_tech_request_context->get_converted_keys(
+          IMPORTING es_key_values = ls_keys ).
+
+        SELECT SINGLE FROM vbak
+          FIELDS vbeln, erdat, erzet, ernam, netwr,
+                 waerk, vkorg, vtweg, spart, kunnr, cmpsd , auart
+          WHERE vbeln = @ls_keys-vbeln
+          INTO @DATA(ls_header).
+        IF sy-subrc EQ 0.
+
+          SELECT SINGLE FROM kna1
+            FIELDS kunnr, name1, land1
+            WHERE kunnr = @ls_header-kunnr
+            INTO @DATA(ls_customer).
+
+          SELECT FROM vbap
+            FIELDS vbeln, posnr, matnr, arktx, zmeng, meins,
+                   netwr, waerk, werks, lgort, vstel, route
+            WHERE vbeln = @ls_header-vbeln
+            INTO TABLE @DATA(lt_item).
+          IF sy-subrc EQ 0.
+            SELECT FROM mara
+              FIELDS matnr, mtart
+              FOR ALL ENTRIES IN @lt_item
+              WHERE matnr = @lt_item-matnr
+              INTO TABLE @DATA(lt_material).
+          ENDIF.
+        ENDIF.
+
+        ls_so_all = VALUE #(
+              vbeln = ls_header-vbeln
+             cmpsd = ls_header-cmpsd
+             auart = ls_header-auart
+              erdat = ls_header-erdat
+              erzet = ls_header-erzet
+              ernam = ls_header-ernam
+              netwr = ls_header-netwr
+              waerk = ls_header-waerk
+              vkorg = ls_header-vkorg
+              vtweg = ls_header-vtweg
+              spart = ls_header-spart
+              kunnr = ls_header-kunnr
+              tocustomer = ls_customer
+              toitem = VALUE #( FOR ls_item IN lt_item WHERE ( vbeln = ls_header-vbeln )
+                (
+                  vbeln = ls_item-vbeln
+                  posnr = ls_item-posnr
+                  matnr = ls_item-matnr
+                  arktx = ls_item-arktx
+                  zmeng = ls_item-zmeng
+                  meins = ls_item-meins
+                  netwr = ls_item-netwr
+                  waerk = ls_item-waerk
+                  werks = ls_item-werks
+                  lgort = ls_item-lgort
+                  vstel = ls_item-vstel
+                  route = ls_item-route
+                  toproduct =
+                    VALUE #( vbeln = ls_item-vbeln
+                             posnr = ls_item-posnr
+                             matnr = ls_item-matnr
+                             mtart = VALUE #( lt_material[ matnr = ls_item-matnr ]-mtart OPTIONAL ) ) ) ) ).
+
+        copy_data_to_ref(
+           EXPORTING
+             is_data = ls_so_all
+           CHANGING
+             cr_data = er_entity ).
+    ENDCASE.
+  ENDMETHOD.
+
+
+  METHOD /iwbep/if_mgw_appl_srv_runtime~get_expanded_entityset.
+    DATA : lt_so_all TYPE STANDARD TABLE OF ZCL_ZODATA_SO_mpc_ext=>ty_so.
+
+    CASE iv_entity_set_name.
+      WHEN 'SOHeaderSet'.
+
+        SELECT FROM vbak
+           FIELDS vbeln, erdat, erzet, ernam, netwr,
+                  waerk, vkorg, vtweg, spart, kunnr , cmpsd , auart
+           INTO TABLE @DATA(lt_header)
+           UP TO 10 ROWS.
+        IF sy-subrc EQ 0.
+
+          SELECT FROM kna1
+            FIELDS kunnr, name1, land1
+            FOR ALL ENTRIES IN @lt_header
+            WHERE kunnr = @lt_header-kunnr
+            INTO TABLE @DATA(lt_customer).
+
+          SELECT FROM vbap
+            FIELDS vbeln, posnr, matnr, arktx, zmeng, meins,
+                   netwr, waerk, werks, lgort, vstel, route
+            FOR ALL ENTRIES IN @lt_header
+            WHERE vbeln = @lt_header-vbeln
+            INTO TABLE @DATA(lt_item).
+          IF sy-subrc EQ 0.
+            SELECT FROM mara
+              FIELDS matnr, mtart
+              FOR ALL ENTRIES IN @lt_item
+              WHERE matnr = @lt_item-matnr
+              INTO TABLE @DATA(lt_material).
+          ENDIF.
+        ENDIF.
+
+        lt_so_all = VALUE #(
+          FOR ls_header IN lt_header
+            ( vbeln = ls_header-vbeln
+              erdat = ls_header-erdat
+              erzet = ls_header-erzet
+              ernam = ls_header-ernam
+              netwr = ls_header-netwr
+              waerk = ls_header-waerk
+              vkorg = ls_header-vkorg
+              vtweg = ls_header-vtweg
+              spart = ls_header-spart
+              kunnr = ls_header-kunnr
+              tocustomer = VALUE #( lt_customer[ kunnr = ls_header-kunnr ] OPTIONAL )
+              toitem = VALUE #( FOR ls_item IN lt_item WHERE ( vbeln = ls_header-vbeln )
+                (
+                  vbeln = ls_item-vbeln
+                  posnr = ls_item-posnr
+                  matnr = ls_item-matnr
+                  arktx = ls_item-arktx
+                  zmeng = ls_item-zmeng
+                  meins = ls_item-meins
+                  netwr = ls_item-netwr
+                  waerk = ls_item-waerk
+                  werks = ls_item-werks
+                  lgort = ls_item-lgort
+                  vstel = ls_item-vstel
+                  route = ls_item-route
+                  toproduct =
+                    VALUE #( vbeln = ls_item-vbeln
+                             posnr = ls_item-posnr
+                             matnr = ls_item-matnr
+                             mtart = VALUE #( lt_material[ matnr = ls_item-matnr ]-mtart OPTIONAL ) ) ) ) ) ).
+
+        copy_data_to_ref(
+         EXPORTING
+           is_data = lt_so_all
+         CHANGING
+           cr_data = er_entityset ).
+
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.

@@ -1,0 +1,107 @@
+@EndUserText.label : 'Sales order customer'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zst_socust {
+
+  kunnr : kunnr;
+  name1 : name1_gp;
+  land1 : land1_gp;
+
+}
+
+@EndUserText.label : 'Sales order product'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zst_soproduct {
+
+  vbeln : vbeln;
+  posnr : posnr;
+  matnr : matnr;
+  mtart : mtart;
+
+}
+
+@EndUserText.label : 'Sales order header'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zst_sohdr {
+
+  vbeln : vbeln_va;
+  erdat : erdat;
+  erzet : erzet;
+  ernam : ernam;
+  @Semantics.amount.currencyCode : 'zst_sohdr.waerk'
+  netwr : netwr_ak;
+  waerk : waerk;
+  vkorg : vkorg;
+  vtweg : vtweg;
+  spart : spart;
+  kunnr : kunag;
+
+}
+
+@EndUserText.label : 'Sales order item'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zst_soitem {
+
+  vbeln : vbeln_va;
+  posnr : posnr;
+  matnr : matnr;
+  arktx : arktx;
+  @Semantics.quantity.unitOfMeasure : 'zst_soitem.meins'
+  zmeng : dzmeng;
+  meins : meins;
+  @Semantics.amount.currencyCode : 'zst_soitem.waerk'
+  netwr : netwr_ap;
+  waerk : waerk;
+  werks : werks_ext;
+  lgort : lgort_d;
+  vstel : vstel;
+  route : route;
+
+}
+
+@EndUserText.label : 'Sales order item deep structure'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zst_soitemds {
+
+  vbeln     : vbeln_va;
+  posnr     : posnr;
+  matnr     : matnr;
+  arktx     : arktx;
+  @Semantics.quantity.unitOfMeasure : 'zst_soitem.meins'
+  zmeng     : dzmeng;
+  meins     : meins;
+  @Semantics.amount.currencyCode : 'zst_soitem.waerk'
+  netwr     : netwr_ap;
+  waerk     : waerk;
+  werks     : werks_ext;
+  lgort     : lgort_d;
+  vstel     : vstel;
+  route     : route;
+  toproduct : zst_soproduct;
+
+}
+
+ztt_soitem is a table type based on zst_soitemds
+
+
+
+@EndUserText.label : 'Sales order header item'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+define structure zst_sods {
+
+  vbeln      : vbeln_va;
+  erdat      : erdat;
+  erzet      : erzet;
+  ernam      : ernam;
+  @Semantics.amount.currencyCode : 'zst_sohdr.waerk'
+  netwr      : netwr_ak;
+  waerk      : waerk;
+  vkorg      : vkorg;
+  vtweg      : vtweg;
+  spart      : spart;
+  kunnr      : kunag;
+  tocustomer : zst_socust;
+  toitem     : ztt_soitem;
+
+}
+
+
