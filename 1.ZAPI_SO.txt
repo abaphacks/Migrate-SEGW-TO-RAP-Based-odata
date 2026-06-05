@@ -1,0 +1,887 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'SO header'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZI_SOHEADER
+  as select from I_SalesDocument
+  composition [1..*] of ZI_SOITEM     as _item
+  composition [1..1] of ZI_SOCUSTOMER as _cust
+
+{
+  key SalesDocument,
+      SalesDocumentType,
+      CreationDate,
+      CreationTime,
+      CreatedByUser,
+      TransactionCurrency,
+      @Semantics.amount.currencyCode: 'TransactionCurrency'
+      TotalNetAmount,
+      SalesOrganization,
+      DistributionChannel,
+      OrganizationDivision,
+      SoldToParty,
+      CustomerPaymentTerms,
+      _item,
+      _cust
+
+}
+
+
+
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'SO item view'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_SOITEM
+  as select from I_SalesDocumentItem
+  composition [1..1] of ZI_SOPRODUCT as _prd
+  association to parent ZI_SOHEADER  as _hdr on $projection.SalesDocument = _hdr.SalesDocument
+{
+  key SalesDocument,
+  key SalesDocumentItem,
+      Material,
+      Product,
+      SalesDocumentItemText,
+      TargetQuantityUnit,
+      @Semantics.quantity.unitOfMeasure: 'TargetQuantityUnit'
+      TargetQuantity,
+      TransactionCurrency,
+      @Semantics.amount.currencyCode: 'TransactionCurrency'
+      NetAmount,
+      Plant,
+      StorageLocation,
+      ShippingPoint,
+      Route,
+      _hdr,
+      _prd
+
+}
+
+
+
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Sales order Customer'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_SOCUSTOMER
+  as select from I_Customer
+  association to parent ZI_SOHEADER as _hdr on $projection.Customer = _hdr.SalesDocument
+
+
+{
+  key Customer,
+      CustomerName,
+      Country,
+      _hdr
+
+}
+
+
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Sales order product'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_SOPRODUCT
+  as select from    I_Product           as Pdt
+    left outer join I_SalesDocumentItem as SOItem on SOItem.Material = Pdt.Product
+  association to parent ZI_SOITEM as _item on  $projection.SalesDocument     = _item.SalesDocument
+                                           and $projection.SalesDocumentItem = _item.SalesDocumentItem
+{
+  key SOItem.SalesDocument,
+  key SOItem.SalesDocumentItem,
+      Pdt.Product,
+      Pdt.ProductType,
+      _item
+
+
+
+}
+where
+      SOItem.SalesDocument     <> ''
+
+
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Sales order header projection'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZC_SOHEADER
+  as projection on ZI_SOHEADER
+{
+  key SalesDocument,
+      SalesDocumentType,
+      CreationDate,
+      CreationTime,
+      CreatedByUser,
+      TransactionCurrency,
+      @Semantics.amount.currencyCode: 'TransactionCurrency'
+      TotalNetAmount,
+      SalesOrganization,
+      DistributionChannel,
+      OrganizationDivision,
+      SoldToParty,
+      CustomerPaymentTerms,
+      /* Associations */
+      _cust : redirected to composition child ZC_SOCUSTOMER,
+      _item : redirected to composition child ZC_SOITEM
+}
+
+
+
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'SO item Projection'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZC_SOITEM
+  as projection on ZI_SOITEM
+{
+  key SalesDocument,
+  key SalesDocumentItem,
+      SalesDocumentItemText,
+      Material,
+      Product,
+      TargetQuantityUnit,
+      @Semantics.quantity.unitOfMeasure: 'TargetQuantityUnit'
+      TargetQuantity,
+      TransactionCurrency,
+      @Semantics.amount.currencyCode: 'TransactionCurrency'
+      NetAmount,
+      Plant,
+      StorageLocation,
+      ShippingPoint,
+      Route,
+      /* Associations */
+      _hdr : redirected to parent ZC_SOHEADER,
+      _prd : redirected to composition child ZC_SOPRODUCT
+}
+
+
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Customer projection'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZC_SOCUSTOMER
+  as projection on ZI_SOCUSTOMER
+{
+  key Customer,
+      CustomerName,
+      Country,
+      /* Associations */
+      _hdr : redirected to parent ZC_SOHEADER
+}
+
+
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Product projection'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZC_SOPRODUCT
+  as projection on ZI_SOPRODUCT
+{
+  key SalesDocument,
+  key SalesDocumentItem,
+      Product,
+      ProductType,
+      /* Associations */
+      _item : redirected to parent ZC_SOITEM
+}
+
+
+
+
+@EndUserText.label: 'Sales order SD'
+@ObjectModel.leadingEntity: {
+    name: 'ZC_SOHEADER'
+}
+define service ZAPI_SO {
+  expose ZC_SOHEADER   as SOHEADER;
+  expose ZC_SOITEM     as SOITEM;
+  expose ZC_SOCUSTOMER as Customer;
+  expose ZC_SOPRODUCT  as Product;
+}
+
+
+unmanaged implementation in class zbp_i_soheader unique;
+//strict ( 1 );
+
+define behavior for ZI_SOHEADER alias Hdr
+//late numbering
+lock master
+authorization master ( instance )
+late numbering
+//etag master <field_name>
+{
+  create;
+  update;
+  delete;
+  static function so_count_status parameter ZAE_FIM_INPT result [1..*] ZAE_SO_COUNT_STATS;
+
+
+  association _cust { create; }
+  association _item { create; }
+}
+
+define behavior for ZI_SOCUSTOMER alias Cust
+//late numbering
+lock dependent by _hdr
+authorization dependent by _hdr
+//etag master <field_name>
+{
+  update;
+  delete;
+  field ( readonly ) Customer;
+  association _hdr;
+}
+
+define behavior for ZI_SOITEM alias Item
+//late numbering
+lock dependent by _hdr
+authorization dependent by _hdr
+//etag master <field_name>
+{
+  update;
+  delete;
+  field ( readonly ) SalesDocument;
+  association _hdr;
+  //  association _prd { create; }
+}
+
+define behavior for ZI_SOPRODUCT alias Prd
+//late numbering
+//lock dependent by <no_to_master_association found>
+//authorization dependent by <no_to_master_association found>
+//etag master <field_name>
+{
+  update;
+  delete;
+  field ( readonly ) SalesDocument, SalesDocumentItem;
+  association _item;
+}
+
+
+projection;
+//strict ( 2 ); //Uncomment this line in order to enable strict mode 2. The strict mode has two variants (strict(1), strict(2)) and is prerequisite to be future proof regarding syntax and to be able to release your BO.
+
+define behavior for ZC_SOHEADER //alias <alias_name>
+{
+  use create;
+  use update;
+  use delete;
+  use function so_count_status;
+  use association _cust { create; }
+  use association _item { create; }
+}
+
+define behavior for ZC_SOCUSTOMER //alias <alias_name>
+{
+  use update;
+  use delete;
+
+  use association _hdr;
+}
+
+define behavior for ZC_SOITEM //alias <alias_name>
+{
+  use update;
+  use delete;
+
+  use association _hdr;
+  //  use association _prd { create; }
+}
+
+define behavior for ZC_SOPRODUCT //alias <alias_name>
+{
+  use update;
+  use delete;
+
+  use association _item;
+}
+
+
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'SO count status'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZI_SO_COUNT_STATUS
+  with parameters
+    customer : kunnr
+
+  as select from I_SalesDocument
+{
+  key count( distinct case OverallSDProcessStatus
+                       when 'A' then SalesDocument end )      as Notprocessed,
+      count( distinct case OverallSDProcessStatus
+                            when 'B' then SalesDocument end ) as Partiallyprocessed,
+      count( distinct case OverallSDProcessStatus
+                           when 'C' then SalesDocument end )  as Completelyprocessed,
+      count( distinct case OverallSDProcessStatus
+                           when ' ' then SalesDocument end )  as Notrelevant
+
+
+}
+where
+  SoldToParty = lpad( $parameters.customer , 10 , '0' )
+
+
+
+@EndUserText.label: 'Sales order SD'
+@ObjectModel.leadingEntity: {
+    name: 'ZC_SOHEADER'
+}
+define service ZAPI_SO {
+  expose ZC_SOHEADER        as SOHEADER;
+  expose ZC_SOITEM          as SOITEM;
+  expose ZC_SOCUSTOMER      as Customer;
+  expose ZC_SOPRODUCT       as Product;
+  expose ZI_SO_COUNT_STATUS as SoCountStatus;
+}
+
+
+
+
+
+
+
+CLASS lcl_buffer DEFINITION.
+  PUBLIC SECTION.
+    TYPES : BEGIN OF ty_hdr,
+              cid_hdr              TYPE abp_behv_cid,
+              pid_hdr              TYPE sysuuid_x16,
+              salesdocument        TYPE vbeln_va,
+              salesdocumenttype    TYPE auart,
+              creationdate         TYPE erdat,
+              creationtime         TYPE creation_time,
+              createdbyuser        TYPE ernam,
+              transactioncurrency  TYPE waerk,
+              totalnetamount       TYPE netwr_ak,
+              salesorganization    TYPE vkorg,
+              distributionchannel  TYPE vtweg,
+              organizationdivision TYPE spart,
+              soldtoparty          TYPE kunag,
+              customerpaymentterms TYPE dzterm,
+            END OF ty_hdr,
+            BEGIN OF ty_item,
+              cid_item              TYPE abp_behv_cid,
+              salesdocument         TYPE vbeln_va,
+              salesdocumentitem     TYPE posnr_va,
+              material              TYPE matnr,
+              product               TYPE productnumber,
+              salesdocumentitemtext TYPE arktx,
+              targetquantityunit    TYPE dzieme,
+              targetquantity        TYPE dzmeng,
+              transactioncurrency   TYPE waerk,
+              netamount             TYPE netwr_ap,
+              plant                 TYPE werks_ext,
+              storagelocation       TYPE lgort_d,
+              shippingpoint         TYPE vstel,
+              route                 TYPE route,
+            END OF ty_item,
+            tt_item TYPE TABLE OF ty_item WITH DEFAULT KEY,
+            BEGIN OF ty_create,
+              cid_hdr              TYPE abp_behv_cid,
+              pid_hdr              TYPE sysuuid_x16,
+              salesdocument        TYPE vbeln_va,
+              salesdocumenttype    TYPE auart,
+              creationdate         TYPE erdat,
+              creationtime         TYPE creation_time,
+              createdbyuser        TYPE ernam,
+              transactioncurrency  TYPE waerk,
+              totalnetamount       TYPE netwr_ak,
+              salesorganization    TYPE vkorg,
+              distributionchannel  TYPE vtweg,
+              organizationdivision TYPE spart,
+              soldtoparty          TYPE kunag,
+              customerpaymentterms TYPE dzterm,
+              item                 TYPE tt_item,
+            END OF ty_CREATE.
+    CLASS-DATA : lt_create TYPE TABLE OF ty_create,
+                 lt_hdr    TYPE TABLE OF ty_hdr.
+ENDCLASS.
+
+
+CLASS lhc_ZI_SOHEADER DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR Hdr RESULT result.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE Hdr.
+
+    METHODS update FOR MODIFY
+      IMPORTING entities FOR UPDATE Hdr.
+
+    METHODS delete FOR MODIFY
+      IMPORTING keys FOR DELETE Hdr.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Hdr RESULT result.
+
+    METHODS lock FOR LOCK
+      IMPORTING keys FOR LOCK Hdr.
+
+    METHODS rba_Cust FOR READ
+      IMPORTING keys_rba FOR READ Hdr\_Cust FULL result_requested RESULT result LINK association_links.
+
+    METHODS rba_Item FOR READ
+      IMPORTING keys_rba FOR READ Hdr\_Item FULL result_requested RESULT result LINK association_links.
+
+    METHODS cba_Cust FOR MODIFY
+      IMPORTING entities_cba FOR CREATE Hdr\_Cust.
+
+    METHODS cba_Item FOR MODIFY
+      IMPORTING entities_cba FOR CREATE Hdr\_Item.
+    METHODS so_count_status FOR READ
+      IMPORTING keys FOR FUNCTION Hdr~so_count_status RESULT result.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOHEADER IMPLEMENTATION.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD create.
+    LOOP AT entities ASSIGNING FIELD-SYMBOL(<fs_entity>).
+      "1. generate the pid no
+      TRY.
+          DATA(lv_pid) = cl_system_uuid=>create_uuid_x16_static(  ).
+
+          lcl_buffer=>lt_hdr = VALUE #( BASE lcl_buffer=>lt_hdr
+                                        (  cid_hdr = <fs_entity>-%cid
+                                           pid_hdr = lv_pid
+                                           salesdocumenttype = <fs_entity>-SalesDocumentType
+                                           salesorganization = <fs_entity>-SalesOrganization
+                                           createdbyuser = <fs_entity>-CreatedByUser
+                                           creationdate = <fs_entity>-CreationDate
+                                           creationtime  = <fs_entity>-CreationTime
+                                           distributionchannel  = <fs_entity>-DistributionChannel
+                                           organizationdivision  = <fs_entity>-OrganizationDivision
+                                           soldtoparty  = <fs_entity>-SoldToParty
+                                           customerpaymentterms = <fs_entity>-CustomerPaymentTerms
+                                        )
+                                       ).
+
+
+          mapped-hdr = VALUE #( BASE mapped-hdr
+                               ( %cid = <fs_entity>-%cid
+                                  %pid = lv_pid
+                                )
+                             ).
+        CATCH cx_uuid_error.
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD update.
+  ENDMETHOD.
+
+  METHOD delete.
+  ENDMETHOD.
+
+  METHOD read.
+
+  ENDMETHOD.
+
+  METHOD lock.
+  ENDMETHOD.
+
+  METHOD rba_Cust.
+  ENDMETHOD.
+
+  METHOD rba_Item.
+  ENDMETHOD.
+
+  METHOD cba_Cust.
+  ENDMETHOD.
+
+  METHOD cba_Item.
+    lcl_buffer=>lt_create = VALUE #( FOR wa_hdr IN lcl_buffer=>lt_hdr
+                                     FOR entity IN entities_cba WHERE ( %pid = wa_hdr-pid_hdr )
+                                    (
+                                       cid_hdr = wa_hdr-cid_hdr
+                                       pid_hdr = wa_hdr-pid_hdr
+                                         salesdocument                = wa_hdr-salesdocument
+                                        salesdocumenttype            = wa_hdr-salesdocumenttype
+                                        creationdate                 = wa_hdr-creationdate
+                                        creationtime                 = wa_hdr-creationtime
+                                        createdbyuser                = wa_hdr-createdbyuser
+                                        transactioncurrency          =  wa_hdr-transactioncurrency
+                                        totalnetamount               = wa_hdr-totalnetamount
+                                        salesorganization            = wa_hdr-salesorganization
+                                        distributionchannel          = wa_hdr-distributionchannel
+                                        organizationdivision         = wa_hdr-organizationdivision
+                                        soldtoparty                  = wa_hdr-soldtoparty
+                                        customerpaymentterms         = wa_hdr-customerpaymentterms
+                                        item = VALUE #( FOR item IN entity-%target
+                                                        (
+                                                        CORRESPONDING #(  item MAPPING cid_item = %cid )
+                                                        )
+                                                      )
+                                      ) ).
+
+    mapped-item = VALUE #( FOR entity IN entities_cba
+                           FOR item IN entity-%target
+                           (  %cid = item-%cid
+                              %pid = item-SalesDocumentItem
+                              SalesDocument = item-SalesDocument
+                              SalesDocumentItem = item-SalesDocumentItem
+                             ) ).
+  ENDMETHOD.
+
+  METHOD so_count_status.
+    DATA(lv_kunnr) = keys[ 1 ]-%param-Customer.
+    lv_kunnr = |{ lv_kunnr ALPHA = IN } |.
+
+    SELECT
+    COUNT( CASE gbstk WHEN 'A' THEN gbstk  END ) AS notprocessed,
+    COUNT( CASE gbstk WHEN 'B' THEN gbstk  END ) AS partiallyprocessed,
+    COUNT( CASE gbstk WHEN 'C' THEN gbstk  END ) AS completelyprocessed,
+    COUNT( CASE gbstk WHEN ' ' THEN gbstk  END ) AS notrelevant
+    FROM vbak
+    WHERE kunnr = @lv_kunnr
+    INTO ( @DATA(lv_notprocessed), @DATA(lv_partiallyprocessed),
+    @DATA(lv_completelyprocessed), @DATA(lv_notrelevant) ).
+
+    result = VALUE #( ( %cid = keys[ 1 ]-%cid
+                         %param = VALUE #( Customer = lv_kunnr
+                                           CompletelyProcessed = lv_completelyprocessed
+                                           NotProcessed = lv_notprocessed
+                                           NotRelevant = lv_notrelevant
+                                           PartiallyProcessed = lv_partiallyprocessed
+                                          )
+                   ) ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOCUSTOMER DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS update FOR MODIFY
+      IMPORTING entities FOR UPDATE Cust.
+
+    METHODS delete FOR MODIFY
+      IMPORTING keys FOR DELETE Cust.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Cust RESULT result.
+
+    METHODS rba_Hdr FOR READ
+      IMPORTING keys_rba FOR READ Cust\_Hdr FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOCUSTOMER IMPLEMENTATION.
+
+  METHOD update.
+  ENDMETHOD.
+
+  METHOD delete.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Hdr.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOITEM DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS update FOR MODIFY
+      IMPORTING entities FOR UPDATE Item.
+
+    METHODS delete FOR MODIFY
+      IMPORTING keys FOR DELETE Item.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Item RESULT result.
+
+    METHODS rba_Hdr FOR READ
+      IMPORTING keys_rba FOR READ Item\_Hdr FULL result_requested RESULT result LINK association_links.
+
+    METHODS rba_Prd FOR READ
+      IMPORTING keys_rba FOR READ Item\_Prd FULL result_requested RESULT result LINK association_links.
+
+    METHODS cba_Prd FOR MODIFY
+      IMPORTING entities_cba FOR CREATE Item\_Prd.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOITEM IMPLEMENTATION.
+
+  METHOD update.
+  ENDMETHOD.
+
+  METHOD delete.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Hdr.
+  ENDMETHOD.
+
+  METHOD rba_Prd.
+  ENDMETHOD.
+
+  METHOD cba_Prd.
+    BREAK-POINT.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOPRODUCT DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS update FOR MODIFY
+      IMPORTING entities FOR UPDATE Prd.
+
+    METHODS delete FOR MODIFY
+      IMPORTING keys FOR DELETE Prd.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Prd RESULT result.
+
+    METHODS rba_Item FOR READ
+      IMPORTING keys_rba FOR READ Prd\_Item FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_ZI_SOPRODUCT IMPLEMENTATION.
+
+  METHOD update.
+  ENDMETHOD.
+
+  METHOD delete.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Item.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lsc_ZI_SOHEADER DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PUBLIC SECTION.
+    TYPES : tt_return          TYPE TABLE OF bapiret2,
+            tt_order_items_in  TYPE TABLE OF bapisditm WITH DEFAULT KEY,
+            tt_order_items_inx TYPE TABLE OF bapisditmx WITH DEFAULT KEY,
+            tt_order_partners  TYPE TABLE OF bapiparnr WITH DEFAULT KEY.
+
+    DATA : ls_header   TYPE bapisdhd1,
+           ls_headerx  TYPE bapisdhd1x,
+           lv_salesdoc TYPE bapivbeln-vbeln,
+           lt_return   TYPE TABLE OF bapiret2.
+  PROTECTED SECTION.
+
+    METHODS finalize REDEFINITION.
+
+    METHODS check_before_save REDEFINITION.
+
+    METHODS save REDEFINITION.
+
+    METHODS cleanup REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+    METHODS adjust_numbers REDEFINITION.
+
+    METHODS call_bapi_so_create
+      IMPORTING
+        im_salesdocument TYPE bapivbeln-vbeln OPTIONAL
+        order_header_in  TYPE bapisdhd1
+        order_partners   TYPE tt_order_partners
+        order_items_in   TYPE tt_order_items_in OPTIONAL
+        testrun          TYPE bapiflag-bapiflag OPTIONAL
+      EXPORTING
+        ex_salesdocument TYPE bapivbeln-vbeln
+        ex_return        TYPE tt_return.
+
+ENDCLASS.
+
+CLASS lsc_ZI_SOHEADER IMPLEMENTATION.
+
+  METHOD finalize.
+  ENDMETHOD.
+
+  METHOD check_before_save.
+    IF lcl_buffer=>lt_create IS NOT INITIAL.
+
+      LOOP AT lcl_buffer=>lt_create ASSIGNING FIELD-SYMBOL(<fs_create>).
+
+        ls_header = VALUE #(  doc_type = <fs_create>-salesdocumenttype
+                              doc_date = <fs_create>-creationdate
+                              currency = <fs_create>-transactioncurrency
+                              sales_org = <fs_create>-salesorganization
+                              distr_chan = <fs_create>-distributionchannel
+                              division = <fs_create>-organizationdivision
+                              pmnttrms = <fs_create>-CustomerPaymentTerms
+                           ).
+
+
+        DATA(lt_items) = VALUE tt_order_items_in( FOR wa_item IN <fs_create>-item
+                                             (
+                                               itm_number = wa_item-salesdocumentitem
+                                               material   = wa_item-material
+                                               short_text = wa_item-salesdocumentitemtext
+                                               target_qty = wa_item-targetquantity
+                                               target_qu  = COND #( WHEN wa_item-targetquantityunit = 'PC'
+                                                                    THEN 'ST'
+                                                                    ELSE wa_item-targetquantityunit )
+                                              plant      = wa_item-plant
+                                              store_loc  = wa_item-storagelocation
+                                              ship_point = wa_item-shippingpoint
+                                              route      = wa_item-route
+
+                                              )
+                                             ).
+
+        DATA(lt_partners) = VALUE tt_order_partners(
+                  ( partn_role = 'AG' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Sold-to Party
+                  ( partn_role = 'WE' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Ship-to Party
+                  ( partn_role = 'RE' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Bill-to Party
+                  ( partn_role = 'PR' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Payer
+              ).
+
+        me->call_bapi_so_create(
+         EXPORTING
+        order_header_in  = ls_header
+        order_partners   = lt_partners
+        order_items_in   = lt_items
+        testrun          = 'X'
+        IMPORTING
+        ex_salesdocument = lv_salesdoc
+        ex_return        = DATA(et_return)
+    ).
+
+        DELETE et_return WHERE type = 'S' OR type = 'W'.
+        IF et_return IS NOT INITIAL.
+          failed-hdr = VALUE #( BASE failed-hdr
+                                  ( %pid =  <fs_create>-pid_hdr ) ).
+
+          reported-hdr = VALUE #( BASE reported-hdr
+                                   FOR ls_return IN et_return
+                                    ( %pid =  <fs_create>-pid_hdr
+                                       %msg = new_message( id  = ls_return-id
+                                                           number   = ls_return-number
+                                                           severity = if_abap_behv_message=>severity-error
+                                                            v1       = ls_return-message_v1
+                                                            v2       = ls_return-message_v2
+                                                            v3       = ls_return-message_v3
+                                                            v4       = ls_return-message_v4 )
+
+
+
+                                                 ) ).
+
+          CLEAR : et_return,ls_header, lt_items, lt_partners, lv_salesdoc.
+        ENDIF.
+
+      ENDLOOP.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD adjust_numbers.
+    IF lcl_buffer=>lt_create IS NOT INITIAL.
+
+      LOOP AT lcl_buffer=>lt_create ASSIGNING FIELD-SYMBOL(<fs_create>).
+
+        ls_header = VALUE #(  doc_type = <fs_create>-salesdocumenttype
+                              doc_date = <fs_create>-creationdate
+                              currency = <fs_create>-transactioncurrency
+                              sales_org = <fs_create>-salesorganization
+                              distr_chan = <fs_create>-distributionchannel
+                              division = <fs_create>-organizationdivision
+                              pmnttrms = <fs_create>-CustomerPaymentTerms
+                           ).
+
+
+        DATA(lt_items) = VALUE tt_order_items_in( FOR wa_item IN <fs_create>-item
+                                             (
+                                               itm_number = wa_item-salesdocumentitem
+                                               material   = wa_item-material
+                                               short_text = wa_item-salesdocumentitemtext
+                                               target_qty = wa_item-targetquantity
+                                               target_qu  = COND #( WHEN wa_item-targetquantityunit = 'PC'
+                                                                    THEN 'ST'
+                                                                    ELSE wa_item-targetquantityunit )
+                                              plant      = wa_item-plant
+                                              store_loc  = wa_item-storagelocation
+                                              ship_point = wa_item-shippingpoint
+                                              route      = wa_item-route
+
+                                              )
+                                             ).
+
+        DATA(lt_partners) = VALUE tt_order_partners(
+                  ( partn_role = 'AG' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Sold-to Party
+                  ( partn_role = 'WE' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Ship-to Party
+                  ( partn_role = 'RE' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Bill-to Party
+                  ( partn_role = 'PR' partn_numb = |{ <fs_create>-soldtoparty ALPHA = IN } | ) " Payer
+              ).
+
+        me->call_bapi_so_create(
+         EXPORTING
+        order_header_in  = ls_header
+        order_partners   = lt_partners
+        order_items_in   = lt_items
+        testrun          = ''
+        IMPORTING
+        ex_salesdocument = lv_salesdoc
+        ex_return        = DATA(et_return)
+    ).
+
+        CALL FUNCTION 'BAPI_TRANSACTION_COMMIT' DESTINATION 'NONE'
+          EXPORTING
+            wait = 'X'.
+
+
+
+        IF lv_salesdoc IS NOT INITIAL.
+          mapped-hdr = VALUE #( BASE mapped-hdr
+*                                ( %pid = ''
+                                ( %pid = <fs_create>-pid_hdr
+                                  SalesDocument = lv_salesdoc
+                                  )
+
+                        ).
+        ENDIF.
+      ENDLOOP.
+
+    ENDIF.
+
+
+
+  ENDMETHOD.
+
+  METHOD save.
+
+  ENDMETHOD.
+
+  METHOD cleanup.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+  METHOD call_bapi_so_create.
+    zcl_f_wrap_bapi=>create_instance(  )->bapi_salesorder_createfromdat2(
+         EXPORTING
+           order_header_in  = order_header_in
+           order_partners   = order_partners
+           order_items_in   = order_items_in
+           testrun          = testrun
+         IMPORTING
+           ex_salesdocument = ex_salesdocument
+           ex_return        =  ex_return
+       ).
+  ENDMETHOD.
+
+ENDCLASS.
+ENDCLASS.
+
+
+

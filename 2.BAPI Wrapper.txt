@@ -1,0 +1,134 @@
+INTERFACE zif_wrap_bapi
+  PUBLIC .
+  TYPES : tt_return          TYPE TABLE OF bapiret2,
+          tt_order_items_in  TYPE TABLE OF bapisditm,
+          tt_order_items_inx TYPE TABLE OF bapisditmx,
+          tt_order_partners  TYPE TABLE OF bapiparnr.
+
+  METHODS bapi_salesorder_createfromdat2
+    IMPORTING
+      im_salesdocument TYPE bapivbeln-vbeln OPTIONAL
+      order_header_in  TYPE bapisdhd1
+      order_header_inx TYPE bapisdhd1x OPTIONAL
+      order_partners   TYPE tt_order_partners
+      order_items_in   TYPE tt_order_items_in OPTIONAL
+      order_items_inx  TYPE tt_order_items_inx OPTIONAL
+      testrun          TYPE bapiflag-bapiflag OPTIONAL
+    EXPORTING
+      ex_salesdocument TYPE bapivbeln-vbeln
+      ex_return        TYPE tt_return.
+
+
+ENDINTERFACE.
+
+
+CLASS zcl_f_wrap_bapi DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PRIVATE .
+
+  PUBLIC SECTION.
+    CLASS-METHODS create_instance
+      IMPORTING
+        !destination  TYPE rfcdest OPTIONAL
+      RETURNING
+        VALUE(result) TYPE REF TO zif_wrap_bapi.
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS zcl_f_wrap_bapi IMPLEMENTATION.
+  METHOD create_instance.
+    result = NEW zcl_wrap_bapi( destination = destination ).
+  ENDMETHOD.
+ENDCLASS.
+
+
+
+
+CLASS zcl_wrap_bapi DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PRIVATE
+  GLOBAL FRIENDS zcl_f_wrap_bapi.
+
+
+  PUBLIC SECTION.
+    TYPES : tt_return          TYPE TABLE OF bapiret2,
+            tt_order_items_in  TYPE TABLE OF bapisditm,
+            tt_order_items_inx TYPE TABLE OF bapisditmx,
+            tt_order_partners  TYPE TABLE OF bapiparnr.
+    INTERFACES zif_wrap_bapi .
+
+  PROTECTED SECTION.
+    DATA: destination(4) TYPE c VALUE 'NONE' .
+
+  PRIVATE SECTION.
+    METHODS call_bapi_salesorder_create
+      IMPORTING
+        im_salesdocument TYPE bapivbeln-vbeln OPTIONAL
+        order_header_in  TYPE bapisdhd1
+        order_header_inx TYPE bapisdhd1x OPTIONAL
+        order_partners   TYPE tt_order_partners
+        order_items_in   TYPE tt_order_items_in OPTIONAL
+        order_items_inx  TYPE tt_order_items_inx OPTIONAL
+        testrun          TYPE bapiflag-bapiflag OPTIONAL
+      EXPORTING
+        ex_salesdocument TYPE bapivbeln-vbeln
+        ex_return        TYPE tt_return.
+
+    METHODS constructor
+      IMPORTING
+        !destination TYPE rfcdest .
+
+ENDCLASS.
+
+
+
+CLASS zcl_wrap_bapi IMPLEMENTATION.
+
+
+  METHOD call_bapi_salesorder_create.
+    DATA(lt_items_in)  = order_items_in.
+    DATA(lt_items_inx) =  order_items_inx.
+    DATA(lt_partners)  = order_partners .
+
+    CALL FUNCTION 'BAPI_SALESORDER_CREATEFROMDAT2' DESTINATION 'NONE'
+      EXPORTING
+        order_header_in = order_header_in
+
+        testrun         = testrun
+      IMPORTING
+        salesdocument   = ex_salesdocument
+      TABLES
+        return          = ex_return
+        order_items_in  = lt_items_in
+        order_items_inx = lt_items_inx
+        order_partners  = lt_partners.
+
+
+  ENDMETHOD.
+
+
+  METHOD constructor.
+    me->destination = destination.
+  ENDMETHOD.
+
+
+  METHOD zif_wrap_bapi~bapi_salesorder_createfromdat2.
+    me->call_bapi_salesorder_create(
+      EXPORTING
+        order_header_in  = order_header_in
+        order_partners   = order_partners
+        order_items_in   = order_items_in
+        order_items_inx  = order_items_inx
+        testrun          = testrun
+      IMPORTING
+        ex_salesdocument = ex_salesdocument
+        ex_return        = ex_return
+    ).
+
+  ENDMETHOD.
+ENDCLASS.
